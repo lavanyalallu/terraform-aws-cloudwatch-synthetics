@@ -31,7 +31,7 @@ variable "schedule_expression" {
 variable "s3_artifact_bucket" {
   description = "Name of the S3 bucket for canary artifacts"
   type        = string
- default     = "lavaching908"
+ default     = ""
 }
 
 variable "alarm_email" {
