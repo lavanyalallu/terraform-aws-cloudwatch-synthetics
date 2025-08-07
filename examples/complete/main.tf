@@ -1,15 +1,20 @@
 provider "aws" {
-  region = "us-east-1"
+  region = var.region
 }
+
 module "canaries" {
   source              = "../.."
-  name                = "canary"
-  environment         = "test"
-  label_order         = ["name", "environment"]
-  schedule_expression = "rate(5 minutes)"
-  s3_artifact_bucket  = "test-bucket"              # must pre-exist
-  alarm_email         = "test.user@clouddrove.com" # you need to confirm this email address
-  endpoints           = { "test-example" = { url = "https://example.com" } }
-  # subnet_ids                = module.subnets.private_subnet_id
-  # security_group_ids        = [module.ssh.security_group_ids]    
+  name                = var.name
+  environment         = var.environment
+  label_order         = var.label_order
+  schedule_expression = var.schedule_expression
+  s3_artifact_bucket  = var.s3_artifact_bucket
+  alarm_email         = var.alarm_email
+  endpoints           = var.endpoints
+  # subnet_ids         = module.subnets.private_subnet_id
+  # security_group_ids = [module.ssh.security_group_ids]
+}
+
+resource "random_pet" "suffix" {
+  length = 2
 }
