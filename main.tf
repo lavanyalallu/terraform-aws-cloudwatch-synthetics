@@ -17,7 +17,7 @@ module "labels" {
   label_order = var.label_order
 }
 
-#Module      : CLOUDWATCH SYNTHETIC CANARY 
+#Module      : CLOUDWATCH SYNTHETIC CANARY
 #Description : Terraform module creates Cloudwatch Synthetic canaries on AWS for monitoriing Websites.
 
 locals {
@@ -40,68 +40,59 @@ data "archive_file" "canary_archive_file" {
 }
 
 resource "aws_synthetics_canary" "canary" {
-  for_each             = var.endpoints
-  name                 = each.key
-  artifact_s3_location = "s3://${aws_s3_bucket.canary_artifacts.bucket}/${each.key}"
-  execution_role_arn   = aws_iam_role.canary_role.arn
-  handler              = "pageLoadBlueprint.handler"
-  zip_file             = "/tmp/${each.key}-${md5(local.file_content[each.key])}.zip"
-  runtime_version      = "syn-nodejs-puppeteer-6.2"
-  start_canary         = true
-  tags                 = module.labels.tags
+  for_each            = var.endpoints
+  name                = each.key
+  artifact_s3_location = var.existing_s3_bucket_name != "" ? "s3://${var.existing_s3_bucket_name}/${each.key}" : "s3://${module.s3_bucket.s3_bucket_id}/${each.key}"
+  execution_role_arn  = aws_iam_role.canary_role.arn
+  handler             = "pageLoadBlueprint.handler"
+  zip_file            = "/tmp/${each.key}-${md5(local.file_content[each.key])}.zip"
+  runtime_version     = "syn-nodejs-puppeteer-6.2"
+  start_canary        = true
+  tags                = module.labels.tags
 
   schedule {
     expression = var.schedule_expression
   }
 
   vpc_config {
-    subnet_ids         = var.subnet_ids
+    subnet_ids        = var.subnet_ids
     security_group_ids = var.security_group_ids
   }
 
-  depends_on = [data.archive_file.canary_archive_file, aws_iam_role_policy_attachment.canary_role_policy, aws_s3_bucket.canary_artifacts]
+  depends_on = [
+    data.archive_file.canary_archive_file,
+    aws_iam_role_policy_attachment.canary_role_policy,
+  ]
 }
 
-resource "aws_s3_bucket" "canary_artifacts" {
-  bucket        = var.s3_artifact_bucket
-  force_destroy  = true
+data "aws_iam_policy_document" "s3_bucket_policy" {
+  statement {
+    sid    = "AllowCloudWatchSyntheticsAccess"
+    effect  = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.canary_role.arn]
+    }
+    actions   = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:GetBucketLocation",
+      "s3:ListBucket"
+    ]
+    resources = [
+      "arn:aws:s3:::${module.s3_bucket.s3_bucket_id}",
+      "arn:aws:s3:::${module.s3_bucket.s3_bucket_id}/*"
+    ]
+  }
+}
+
+module "s3_bucket" {
+  source        = "./modules/s3"
+  bucket_name   = var.s3_artifact_bucket
+  force_destroy = true
   tags          = module.labels.tags
+  bucket_policy = data.aws_iam_policy_document.s3_bucket_policy.json
 }
 
 
-#Module      : CLOUDWATCH ALARM FOR AWS SYNTHETIC CANARY 
-#Description : Terraform module creates Cloudwatch Alarm for Cloudwatch Synthetic canaries on AWS for monitoriing Websites.
 
-# resource "aws_cloudwatch_metric_alarm" "canary_alarm" {
-#   for_each = var.endpoints
-
-#   alarm_name          = "${each.key}-canary-alarm"
-#   comparison_operator = "GreaterThanOrEqualToThreshold"
-#   evaluation_periods  = "1"
-#   metric_name         = "Failed"
-#   namespace           = "CloudWatchSynthetics"
-#   period              = "60" # 1 minute
-#   statistic           = "Sum"
-#   threshold           = "1"
-#   treat_missing_data  = "notBreaching"
-
-#   dimensions = {
-#     CanaryName = aws_synthetics_canary.canary[each.key].name
-#   }
-
-#   alarm_description = "Canary alarm for ${each.key}"
-
-#   alarm_actions = [
-#     aws_sns_topic.canary_alarm.arn
-#   ]
-# }
-
-# resource "aws_sns_topic" "canary_alarm" {
-#   name = "dev-xcheck-api-canary-alarm"
-# }
-
-# resource "aws_sns_topic_subscription" "canary_alarm" {
-#   topic_arn = aws_sns_topic.canary_alarm.arn
-#   protocol  = "email"
-#   endpoint  = var.alarm_email
-# }

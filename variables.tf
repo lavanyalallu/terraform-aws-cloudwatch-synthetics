@@ -2,38 +2,32 @@
 #Description : Terraform label module variables.
 variable "name" {
   type        = string
-  default     = ""
-  description = "Name  (e.g. `app` or `cluster`)."
+  description = "Name  of the application"
+  default     = "cwsyn"
 }
 
 variable "repository" {
   type        = string
-  default     = "https://github.com/clouddrove/terraform-aws-cloudwatch-alarms"
-  description = "Terraform current module repo"
-
-  validation {
-    # regex(...) fails if it cannot find a match
-    condition     = can(regex("^https://", var.repository))
-    error_message = "The module-repo value must be a valid Git repo link."
-  }
+  description = "Name of the repository"
+  default     = "cloudwatch-synthetics"
 }
 
 variable "environment" {
   type        = string
-  default     = ""
-  description = "Environment (e.g. `prod`, `dev`, `staging`)."
+  description = "Environment of the application"
+  default     = "test"
 }
 
 variable "label_order" {
-  type        = list(any)
-  default     = []
-  description = "Label order, e.g. `name`,`application`."
+  type        = list(string)
+  description = "Set label order"
+  default     = ["name", "environment"]
 }
 
 variable "managedby" {
   type        = string
-  default     = "hello@clouddrove.com"
-  description = "ManagedBy, eg 'CloudDrove'."
+  description = "Managed By"
+  default     = "CloudDrove"
 }
 
 #Module      : Synthetic canaries
@@ -41,18 +35,20 @@ variable "managedby" {
 
 variable "s3_artifact_bucket" {
   type        = string
-  description = "Location in Amazon S3 where Synthetics stores artifacts from the test runs of this canary"
+  description = "Name of the S3 bucket for canary artifacts"
 }
 
 variable "schedule_expression" {
   type        = string
-  description = "Expression defining how often the canary runs"
+  description = "Cron expression for the canary"
+  default     = "rate(5 minutes)"
 }
 
 variable "endpoints" {
   type = map(object({
     url = string
   }))
+  description = "Map of endpoints to monitor"
 }
 
 variable "alarm_email" {
@@ -61,13 +57,19 @@ variable "alarm_email" {
 }
 
 variable "subnet_ids" {
-  default     = null
   type        = list(string)
-  description = "IDs of the subnets where this canary is to run"
+  description = "List of subnet IDs for VPC configuration (optional)"
+  default     = []
 }
 
 variable "security_group_ids" {
-  default     = null
   type        = list(string)
-  description = "IDs of the security groups for this canary"
+  description = "List of security group IDs for VPC configuration (optional)"
+  default     = []
+}
+
+variable "existing_s3_bucket_name" {
+  type        = string
+  description = "Name of an existing S3 bucket to use for artifacts (optional)"
+  default     = ""
 }
