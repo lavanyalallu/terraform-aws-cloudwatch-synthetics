@@ -1,37 +1,147 @@
-artifact_s3_location = format(
-  "s3://%s/%s",
-  var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket,
-  each.key
-)
-#### root
-output "canary_bucket_name" {
-  description = "The name of the S3 bucket used for storing canary artifacts."
-  value       = var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket
+
+root 
+#variables
+variable "name" {
+  description = "Name for the canary setup"
+  type        = string
 }
 
-output "canary_bucket_arn" {
-  description = "The ARN of the S3 bucket used for storing canary artifacts."
-  value       = var.existing_s3_bucket_name != "" ? "arn:aws:s3:::${var.existing_s3_bucket_name}" : module.canary_s3[0].bucket.arn
+variable "namespace" {
+  description = "Namespace for tagging/naming"
+  type        = string
 }
-#####
-artifact_s3_location = format(
-  "s3://%s/%s",
-  var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket,
-  each.key
-)
-#######
+
+variable "tags" {
+  description = "Tags to apply"
+  type        = map(string)
+  default     = {}
+}
+
+variable "schedule_expression" {
+  description = "Schedule expression for canary"
+  type        = string
+}
+
+variable "endpoints" {
+  description = "Map of endpoints for canary testing"
+  type = map(object({
+    url = string
+  }))
+}
+
+variable "subnet_ids" {
+  type        = list(string)
+  default     = []
+}
+
+variable "security_group_ids" {
+  type        = list(string)
+  default     = []
+}
+
+variable "s3_artifact_bucket" {
+  description = "Name of S3 bucket to store Canary artifacts. If empty, one will be created."
+  type        = string
+  default     = ""
+}
+main.tf
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+locals {
+  name       = var.name
+  namespace  = var.namespace
+  account_id = data.aws_caller_identity.current.account_id
+  region     = data.aws_region.current.name
+}
+
+locals {
+  file_content = { for k, v in var.endpoints :
+    k => templatefile("${path.module}/canary_lambda.js.tpl", { endpoint = v.url })
+  }
+}
+
+module "canary_s3" {
+  source = ""
+  count  = var.s3_artifact_bucket != "" ? 0 : 1
+
+  name      = local.name
+  namespace = var.namespace
+}
+
+locals {
+  artifact_bucket_name = var.s3_artifact_bucket != "" ? var.s3_artifact_bucket : module.canary_s3[0].bucket
+}
+
+data "archive_file" "canary_archive_file" {
+  for_each       = var.endpoints
+  type           = "zip"
+  source_content = local.file_content[each.key]
+  output_path    = "/tmp/${each.key}_${md5(local.file_content[each.key])}.zip"
+}
+
+resource "aws_synthetics_canary" "canary" {
+  for_each = var.endpoints
+
+  name                  = each.key
+  artifact_s3_location  = "s3://${local.artifact_bucket_name}/${each.key}"
+  execution_role_arn    = module.canary_access_role.arn
+  handler               = "pageLoadBlueprint.handler"
+  runtime_version       = "syn-nodejs-puppeteer-6.1"
+  start_canary          = true
+
+  schedule {
+    expression = var.schedule_expression
+  }
+
+  vpc_config {
+    subnet_ids         = var.subnet_ids
+    security_group_ids = var.security_group_ids
+  }
+
+  tags = var.tags
+
+  depends_on = [
+    data.archive_file.canary_archive_file,
+    module.canary_access,
+    module.canary_s3
+  ]
+}
+outputs.tf
+output "artifact_bucket_name" {
+  description = "Name of the S3 bucket used for storing Canary artifacts"
+  value       = local.artifact_bucket_name
+}
+
+
+examples
+
+main.tf
+module "canary_s3" {
+  source = "g"
+
+  name      = "example-canary-bucket"
+  namespace = "example"
+}
+
 module "canaries" {
-  source = "../"
+  source = "../.."
 
-  name      = var.name
-  namespace = module.namespace_short
-  tags      = module.namespace_tags
+  name                = "example-canary"
+  namespace           = "example"
+  tags                = { Environment = "dev" }
+  schedule_expression = "rate(5 minutes)"
 
-  schedule_expression   = var.schedule_expression
-  existing_s3_bucket_name = module.canary_bucket_name  # Using output from root
-  endpoints             = var.endpoints
-  expected_bucket_owner = ""
+  s3_artifact_bucket  = module.canary_s3.bucket
 
-  subnet_ids = [module.subnets.private_subnet_id]
-  # security_group_ids = [module.ssh_security_group.security_group_ids]
+  endpoints = {
+    homepage = { url = "https://example.com" }
+  }
+
+  subnet_ids         = []
+  security_group_ids = []
+}
+
+output "bucket_from_root" {
+  value = module.canaries.artifact_bucket_name
 }
