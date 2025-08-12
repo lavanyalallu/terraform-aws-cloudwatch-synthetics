@@ -42,7 +42,7 @@ data "archive_file" "canary_archive_file" {
 resource "aws_synthetics_canary" "canary" {
   for_each            = var.endpoints
   name                = each.key
-  artifact_s3_location = var.existing_s3_bucket_name != "" ? "s3://${var.existing_s3_bucket_name}/${each.key}" : "s3://${module.s3_bucket.s3_bucket_id}/${each.key}"
+  artifact_s3_location = var.existing_s3_bucket_name != "" ? "s3://${var.existing_s3_bucket_name}/${each.key}" : "s3://${module.internal_s3.s3_bucket_id}/${each.key}"
   execution_role_arn  = aws_iam_role.canary_role.arn
   handler             = "pageLoadBlueprint.handler"
   zip_file            = "/tmp/${each.key}-${md5(local.file_content[each.key])}.zip"
@@ -80,13 +80,13 @@ data "aws_iam_policy_document" "s3_bucket_policy" {
       "s3:ListBucket"
     ]
     resources = [
-      "arn:aws:s3:::${module.s3_bucket.s3_bucket_id}",
-      "arn:aws:s3:::${module.s3_bucket.s3_bucket_id}/*"
+      "arn:aws:s3:::${module.internal_s3.s3_bucket_id}",
+      "arn:aws:s3:::${module.internal_s3.s3_bucket_id}/*"
     ]
   }
 }
 
-module "s3_bucket" {
+module "internal_s3" {
   source        = "./modules/s3"
   bucket_name   = var.s3_artifact_bucket
   force_destroy = true

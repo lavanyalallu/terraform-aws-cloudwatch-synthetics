@@ -1,0 +1,5 @@
+artifact_s3_location = format(
+  "s3://%s/%s",
+  var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket,
+  each.key
+)
