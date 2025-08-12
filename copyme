@@ -1,147 +1,136 @@
-
-root 
-#variables
-variable "name" {
-  description = "Name for the canary setup"
-  type        = string
-}
-
-variable "namespace" {
-  description = "Namespace for tagging/naming"
-  type        = string
-}
-
-variable "tags" {
-  description = "Tags to apply"
-  type        = map(string)
-  default     = {}
-}
-
-variable "schedule_expression" {
-  description = "Schedule expression for canary"
-  type        = string
-}
-
-variable "endpoints" {
-  description = "Map of endpoints for canary testing"
-  type = map(object({
-    url = string
-  }))
-}
-
-variable "subnet_ids" {
-  type        = list(string)
-  default     = []
-}
-
-variable "security_group_ids" {
-  type        = list(string)
-  default     = []
-}
-
-variable "s3_artifact_bucket" {
-  description = "Name of S3 bucket to store Canary artifacts. If empty, one will be created."
-  type        = string
-  default     = ""
-}
-main.tf
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
-locals {
-  name       = var.name
-  namespace  = var.namespace
-  account_id = data.aws_caller_identity.current.account_id
-  region     = data.aws_region.current.name
-}
-
-locals {
-  file_content = { for k, v in var.endpoints :
-    k => templatefile("${path.module}/canary_lambda.js.tpl", { endpoint = v.url })
-  }
-}
-
-module "canary_s3" {
-  source = ""
-  count  = var.s3_artifact_bucket != "" ? 0 : 1
-
-  name      = local.name
-  namespace = var.namespace
-}
-
-locals {
-  artifact_bucket_name = var.s3_artifact_bucket != "" ? var.s3_artifact_bucket : module.canary_s3[0].bucket
-}
-
-data "archive_file" "canary_archive_file" {
-  for_each       = var.endpoints
-  type           = "zip"
-  source_content = local.file_content[each.key]
-  output_path    = "/tmp/${each.key}_${md5(local.file_content[each.key])}.zip"
-}
-
-resource "aws_synthetics_canary" "canary" {
+# Upload canary zip files to S3
+resource "aws_s3_object" "canary_zip" {
   for_each = var.endpoints
 
-  name                  = each.key
-  artifact_s3_location  = "s3://${local.artifact_bucket_name}/${each.key}"
-  execution_role_arn    = module.canary_access_role.arn
-  handler               = "pageLoadBlueprint.handler"
-  runtime_version       = "syn-nodejs-puppeteer-6.1"
-  start_canary          = true
-
-  schedule {
-    expression = var.schedule_expression
-  }
-
-  vpc_config {
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
-  }
-
-  tags = var.tags
+  bucket = local.artifact_bucket_name
+  key    = "${each.key}/canary.zip"
+  source = data.archive_file.canary_archive_file[each.key].output_path
+  etag   = data.archive_file.canary_archive_file[each.key].output_md5
 
   depends_on = [
-    data.archive_file.canary_archive_file,
-    module.canary_access,
-    module.canary_s3
+    module.canary_s3,
+    data.archive_file.canary_archive_file
   ]
 }
-outputs.tf
+
+main.tf outputs
+# One output per resource - exposing the entire resource object
+
+output "synthetics_canary" {
+  description = "Complete AWS Synthetics Canary resource"
+  value       = aws_synthetics_canary.canary
+}
+
+output "iam_role" {
+  description = "Complete IAM role resource for canaries"
+  value       = aws_iam_role.canary_role
+}
+
+output "iam_policy" {
+  description = "Complete IAM policy resource for canaries"
+  value       = aws_iam_policy.canary_policy
+}
+
+output "iam_role_policy_attachment" {
+  description = "Complete IAM role policy attachment resource"
+  value       = aws_iam_role_policy_attachment.canary_role_policy
+}
+
+output "s3_object" {
+  description = "Complete S3 object resources for canary zip files"
+  value       = aws_s3_object.canary_zip
+}
+
+output "archive_file" {
+  description = "Complete archive file data source"
+  value       = data.archive_file.canary_archive_file
+}
+
+output "s3_bucket" {
+  description = "Complete S3 bucket resource (if created by module)"
+  value       = var.s3_artifact_bucket != "" ? null : module.canary_s3[0]
+}
+
+# Additional outputs needed by examples
 output "artifact_bucket_name" {
   description = "Name of the S3 bucket used for storing Canary artifacts"
   value       = local.artifact_bucket_name
 }
 
-
-examples
-
-main.tf
-module "canary_s3" {
-  source = "g"
-
-  name      = "example-canary-bucket"
-  namespace = "example"
+output "bucket_created_by_module" {
+  description = "Whether the S3 bucket was created by this module"
+  value       = var.s3_artifact_bucket == ""
 }
 
-module "canaries" {
-  source = "../.."
+output "canary_names" {
+  description = "Names of all created canaries"
+  value       = [for k, v in aws_synthetics_canary.canary : v.name]
+}
 
-  name                = "example-canary"
-  namespace           = "example"
-  tags                = { Environment = "dev" }
-  schedule_expression = "rate(5 minutes)"
+output "canary_arns" {
+  description = "ARNs of all created canaries"
+  value       = [for k, v in aws_synthetics_canary.canary : v.arn]
+}
 
-  s3_artifact_bucket  = module.canary_s3.bucket
+output "canary_endpoints" {
+  description = "Map of canary names to their monitored endpoints"
+  value       = var.endpoints
+}
 
-  endpoints = {
-    homepage = { url = "https://example.com" }
+output "module_metadata" {
+  description = "General metadata about the canary module"
+  value = {
+    name           = local.name
+    namespace      = local.namespace
+    region         = local.region
+    account_id     = local.account_id
+    canary_count   = length(var.endpoints)
+    tags           = var.tags
   }
-
-  subnet_ids         = []
-  security_group_ids = []
 }
 
-output "bucket_from_root" {
-  value = module.canaries.artifact_bucket_name
+#exampple outputs
+# S3 Information - using existing root outputs
+output "s3_bucket_info" {
+  description = "S3 bucket information"
+  value       = module.canaries.s3_bucket
 }
+
+output "s3_objects" {
+  description = "S3 objects created for canary zip files"
+  value       = module.canaries.s3_object
+}
+
+# Canary Information - using existing root outputs
+output "canary_resources" {
+  description = "Complete canary resources"
+  value       = module.canaries.synthetics_canary
+}
+
+output "canary_names" {
+  description = "Names of all canaries"
+  value       = [for k, v in module.canaries.synthetics_canary : v.name]
+}
+
+output "canary_arns" {
+  description = "ARNs of all canaries"
+  value       = [for k, v in module.canaries.synthetics_canary : v.arn]
+}
+
+# IAM Information
+output "iam_role_info" {
+  description = "IAM role used by canaries"
+  value       = module.canaries.iam_role
+}
+
+output "iam_policy_info" {
+  description = "IAM policy used by canaries"
+  value       = module.canaries.iam_policy
+}
+
+# Archive Information
+output "archive_files" {
+  description = "Archive files created for canaries"
+  value       = module.canaries.archive_file
+}
+
