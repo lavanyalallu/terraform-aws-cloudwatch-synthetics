@@ -3,3 +3,35 @@ artifact_s3_location = format(
   var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket,
   each.key
 )
+#### root
+output "canary_bucket_name" {
+  description = "The name of the S3 bucket used for storing canary artifacts."
+  value       = var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket
+}
+
+output "canary_bucket_arn" {
+  description = "The ARN of the S3 bucket used for storing canary artifacts."
+  value       = var.existing_s3_bucket_name != "" ? "arn:aws:s3:::${var.existing_s3_bucket_name}" : module.canary_s3[0].bucket.arn
+}
+#####
+artifact_s3_location = format(
+  "s3://%s/%s",
+  var.existing_s3_bucket_name != "" ? var.existing_s3_bucket_name : module.canary_s3[0].bucket.bucket,
+  each.key
+)
+#######
+module "canaries" {
+  source = "../"
+
+  name      = var.name
+  namespace = module.namespace_short
+  tags      = module.namespace_tags
+
+  schedule_expression   = var.schedule_expression
+  existing_s3_bucket_name = module.canary_bucket_name  # Using output from root
+  endpoints             = var.endpoints
+  expected_bucket_owner = ""
+
+  subnet_ids = [module.subnets.private_subnet_id]
+  # security_group_ids = [module.ssh_security_group.security_group_ids]
+}
