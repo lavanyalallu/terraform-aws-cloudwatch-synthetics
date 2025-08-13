@@ -1,74 +1,65 @@
-# GraphQL schema for DynamoDB table "appsync-test"
+variable "schedule_expression" {
+  description = "Schedule expression for canary"
+  type        = string
 
-type Pet {
-  PetId: Int!
-  PetName: String
-  PetAge: Int
-  PetWeight: Int
-}
-
-type Query {
-  # Get a pet by its primary key
-  getPet(PetId: Int!): Pet
-
-  # Query by Age Index (LSI)
-  getPetsByAge(PetId: Int!, PetAge: Int!): [Pet]
-
-  # Query by Weight Index (GSI)
-  getPetsByWeight(PetName: String!, PetWeight: Int!): [Pet]
-
-  # List all pets
-  listPets: [Pet]
-}
-
-type Mutation {
-  # Add or update a pet
-  putPet(
-    PetId: Int!
-    PetName: String
-    PetAge: Int
-    PetWeight: Int
-  ): Pet
-
-  # Delete a pet by ID
-  deletePet(PetId: Int!): Pet
-}
-
-schema {
-  query: Query
-  mutation: Mutation
-}
-#resolver
-module "appsync" {
-  datasources = {
-    dynamodb1 = {
-      table_name = "appsync-test"
-      region     = var.region
-    }
-  }
-
-  resolvers = {
-    "Query.getPet" = {
-      data_source = "dynamodb1"
-      request_template = <<EOF
-{
-  "version": "2018-05-29",
-  "operation": "GetItem",
-  "key": {
-    "PetId": { "N": "$ctx.args.PetId" }
-  }
-}
-EOF
-      response_template = <<EOF
-#if ($ctx.result)
-$util.toJson($ctx.result)
-#else
-$util.toJson({})
-#end
-EOF
-    }
+  validation {
+    condition     = can(regex("^(rate|cron)\\(.+\\)$", var.schedule_expression))
+    error_message = "The schedule_expression must be a valid rate() or cron() expression."
   }
 }
 
+variable "endpoints" {
+  description = "Map of endpoints for canary testing"
+  type = map(object({
+    url = string
+  }))
 
+  validation {
+    condition     = length(var.endpoints) > 0
+    error_message = "The endpoints map cannot be empty."
+  }
+}
 
+variable "subnet_ids" {
+  type        = list(string)
+  default     = []
+}
+
+variable "security_group_ids" {
+  type        = list(string)
+  default     = []
+}
+
+variable "s3_artifact_bucket" {
+  description = "Name of S3 bucket to store Canary artifacts. If empty, one will be created."
+  type        = string
+  default     = ""
+}
+
+variable "canary_handler" {
+  description = "The handler for the canary script."
+  type        = string
+  default     = "pageLoadBlueprint.handler"
+
+  validation {
+    condition     = can(regex("^.+\\..+$", var.canary_handler))
+    error_message = "The canary_handler must be in the format 'filename.handler'."
+  }
+}
+
+variable "canary_runtime_version" {
+  description = "The runtime version for the canary."
+  type        = string
+  default     = "syn-nodejs-puppeteer-6.1"
+
+  validation {
+    condition     = substr(var.canary_runtime_version, 0, 4) == "syn-"
+    error_message = "The canary_runtime_version must start with 'syn-'."
+  }
+}
+
+variable "start_canary" {
+  description = "Whether to start the canary after creation."
+  type        = bool
+  default     = true
+}
