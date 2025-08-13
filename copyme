@@ -1,22 +1,74 @@
-data "aws_iam_policy_document" "s3_bucket_policy" {
-  statement {
-    sid    = "AllowCloudWatchSyntheticsAccess"
-    effect  = "Allow"
-    principals {
-      type        = "AWS"
-      identifiers = [aws_iam_role.canary_role.arn]
+# GraphQL schema for DynamoDB table "appsync-test"
+
+type Pet {
+  PetId: Int!
+  PetName: String
+  PetAge: Int
+  PetWeight: Int
+}
+
+type Query {
+  # Get a pet by its primary key
+  getPet(PetId: Int!): Pet
+
+  # Query by Age Index (LSI)
+  getPetsByAge(PetId: Int!, PetAge: Int!): [Pet]
+
+  # Query by Weight Index (GSI)
+  getPetsByWeight(PetName: String!, PetWeight: Int!): [Pet]
+
+  # List all pets
+  listPets: [Pet]
+}
+
+type Mutation {
+  # Add or update a pet
+  putPet(
+    PetId: Int!
+    PetName: String
+    PetAge: Int
+    PetWeight: Int
+  ): Pet
+
+  # Delete a pet by ID
+  deletePet(PetId: Int!): Pet
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+}
+#resolver
+module "appsync" {
+  datasources = {
+    dynamodb1 = {
+      table_name = "appsync-test"
+      region     = var.region
     }
-    actions   = [
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:GetBucketLocation",
-      "s3:ListBucket"
-    ]
-    resources = [
-      "${module.canary_s3[0].bucket.arn}",
-      "${module.canary_s3[0].bucket.arn}/*"
-    ]
+  }
+
+  resolvers = {
+    "Query.getPet" = {
+      data_source = "dynamodb1"
+      request_template = <<EOF
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "PetId": { "N": "$ctx.args.PetId" }
   }
 }
+EOF
+      response_template = <<EOF
+#if ($ctx.result)
+$util.toJson($ctx.result)
+#else
+$util.toJson({})
+#end
+EOF
+    }
+  }
+}
+
 
 
