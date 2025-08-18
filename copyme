@@ -1,21 +1,39 @@
+module "appsync" {
+  source = "terraform-aws-modules/appsync/aws"
 
-resource "aws_appsync_resolver" "get_order_resolver" {
-  api_id      = aws_appsync_graphql_api.my_api.id
-  type        = "Query"
-  field       = "getOrder"
-  data_source = aws_appsync_datasource.orders_table.name
+  authentication_type = "AWS_IAM"
 
-  request_template = <<EOF
+  datasources = {
+    dynamodb1 = {
+      type        = "AMAZON_DYNAMODB"
+      table_name  = aws_dynamodb_table.basic-dynamodb-table.name
+      region      = var.region
+    }
+  }
+
+  resolvers = {
+    "Query.getGameScore" = {
+      data_source       = "dynamodb1"
+
+      request_template  = <<EOF
 {
-  "version": "2017-02-28",
+  "version": "2018-05-29",
   "operation": "GetItem",
   "key": {
-    "orderId": $util.dynamodb.toDynamoDBJson($ctx.args.orderId)
+    "UserId": { "S": "$ctx.args.UserId" },
+    "GameTitle": { "S": "$ctx.args.GameTitle" }
   }
 }
 EOF
 
-  response_template = <<EOF
-$util.toJson($ctx.result)
+      response_template = <<EOF
+#if ($ctx.result)
+  $util.toJson($ctx.result)
+#else
+  $util.toJson({})
+#end
 EOF
+    }
+  }
 }
+
