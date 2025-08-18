@@ -1,65 +1,48 @@
-variable "schedule_expression" {
-  description = "Schedule expression for canary"
-  type        = string
+# Schema for DynamoDB table "GameScores"
 
-  validation {
-    condition     = can(regex("^(rate|cron)\\(.+\\)$", var.schedule_expression))
-    error_message = "The schedule_expression must be a valid rate() or cron() expression."
-  }
+type GameScore {
+  UserId: String!
+  GameTitle: String!
+  TopScore: Int
+  TimeToExist: String
 }
 
-variable "endpoints" {
-  description = "Map of endpoints for canary testing"
-  type = map(object({
-    url = string
-  }))
+type Query {
+  # Get a single score by UserId + GameTitle (PK + SK)
+  getGameScore(UserId: String!, GameTitle: String!): GameScore
 
-  validation {
-    condition     = length(var.endpoints) > 0
-    error_message = "The endpoints map cannot be empty."
-  }
+  # Query by GameTitle index (GSI)
+  getScoresByTitle(GameTitle: String!, TopScore: Int!): [GameScore]
+
+  # List all scores (scan)
+  listGameScores: [GameScore]
 }
 
-variable "subnet_ids" {
-  type        = list(string)
-  default     = []
+type Mutation {
+  # Add or update a game score
+  putGameScore(
+    UserId: String!
+    GameTitle: String!
+    TopScore: Int
+    TimeToExist: String
+  ): GameScore
+
+  # Delete a game score
+  deleteGameScore(UserId: String!, GameTitle: String!): GameScore
 }
 
-variable "security_group_ids" {
-  type        = list(string)
-  default     = []
+schema {
+  query: Query
+  mutation: Mutation
 }
 
-variable "s3_artifact_bucket" {
-  description = "Name of S3 bucket to store Canary artifacts. If empty, one will be created."
-  type        = string
-  default     = ""
-}
+#####
+getGameScore → Fetches a single item by UserId + GameTitle.
 
-variable "canary_handler" {
-  description = "The handler for the canary script."
-  type        = string
-  default     = "pageLoadBlueprint.handler"
+getScoresByTitle → Uses your GSI (GameTitleIndex) to fetch by GameTitle and TopScore.
 
-  validation {
-    condition     = can(regex("^.+\\..+$", var.canary_handler))
-    error_message = "The canary_handler must be in the format 'filename.handler'."
-  }
-}
+listGameScores → Scans the whole table.
 
-variable "canary_runtime_version" {
-  description = "The runtime version for the canary."
-  type        = string
-  default     = "syn-nodejs-puppeteer-6.1"
+putGameScore → Puts a new item or updates existing one.
 
-  validation {
-    condition     = substr(var.canary_runtime_version, 0, 4) == "syn-"
-    error_message = "The canary_runtime_version must start with 'syn-'."
-  }
-}
-
-variable "start_canary" {
-  description = "Whether to start the canary after creation."
-  type        = bool
-  default     = true
-}
+deleteGameScore → Deletes an item using primary keys.
