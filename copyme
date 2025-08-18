@@ -1,48 +1,11 @@
-# Schema for DynamoDB table "GameScores"
 
-type GameScore {
-  UserId: String!
-  GameTitle: String!
-  TopScore: Int
-  TimeToExist: String
+## Request Mapping Template (request.vtl) ##
+{
+  "version" : "2018-05-29",
+  "operation" : "GetItem",
+  "key" : {
+    "productId" : { "S" : "$ctx.args.productId" }
+  }
 }
-
-type Query {
-  # Get a single score by UserId + GameTitle (PK + SK)
-  getGameScore(UserId: String!, GameTitle: String!): GameScore
-
-  # Query by GameTitle index (GSI)
-  getScoresByTitle(GameTitle: String!, TopScore: Int!): [GameScore]
-
-  # List all scores (scan)
-  listGameScores: [GameScore]
-}
-
-type Mutation {
-  # Add or update a game score
-  putGameScore(
-    UserId: String!
-    GameTitle: String!
-    TopScore: Int
-    TimeToExist: String
-  ): GameScore
-
-  # Delete a game score
-  deleteGameScore(UserId: String!, GameTitle: String!): GameScore
-}
-
-schema {
-  query: Query
-  mutation: Mutation
-}
-
-#####
-getGameScore → Fetches a single item by UserId + GameTitle.
-
-getScoresByTitle → Uses your GSI (GameTitleIndex) to fetch by GameTitle and TopScore.
-
-listGameScores → Scans the whole table.
-
-putGameScore → Puts a new item or updates existing one.
-
-deleteGameScore → Deletes an item using primary keys.
+## Response Mapping Template (response.vtl) ##
+$util.toJson($ctx.result)
